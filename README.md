@@ -1,7 +1,15 @@
-This repository contains work on multivariate stratified sampling of continuous variables. 
+# Multivariate Stratified Sampling of Continuous Variables
 
-Kmedoids -> run files for k-medoids clustering with both neyman-adapted and proportional allocation
-bb26 -> benchmark method run files (SamplingStrata) for datasets x strata x sample size combinations
-CV -> minimum CV supplied to SamplingStrata for each datasets x strata x sample size combinations
-RAW26 -> raw output copied from the HPC. includes extraction files which help to format results and save in WIP26
-WIP26 -> output after following the extraction process in RAW26
+This repository contains work on multivariate stratified sampling of continuous variables.
+
+## Repository Structure
+
+- **`Kmedoids/`** — Run files for k-medoids clustering, with both Neyman-adapted and proportional allocation.
+
+- **`bb26/`** — Benchmark method run files (SamplingStrata) for dataset × strata × sample size combinations.
+
+- **`CV/`** — Minimum CV supplied to SamplingStrata for each dataset × strata × sample size combination.
+
+- **`RAW26/`** — Raw output copied from the HPC, including extraction files used to format results and save them into `WIP26/`.
+
+- **`WIP26/`** — Output produced after following the extraction process in `RAW26/`.
