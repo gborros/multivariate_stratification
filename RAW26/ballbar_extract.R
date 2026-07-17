@@ -17,7 +17,7 @@ parse_settings <- function(name) {
                     ifelse(grepl("6strata", name), 6, 5)),
     N = ifelse(grepl("_750", name), 750,
                ifelse(grepl("_250", name), 250, 500)),
-    ref_method = sub(".*_(kmedoids|mclust|kmeans)$", "\\1", name)
+    ref_method = sub(".*_(med_ney|mclust_|kmeans_)$", "\\1", name)
   )
 }
 
@@ -35,6 +35,7 @@ for (f in files) {
   # ---- extract cleanly ----
   n      <- store[[3]]
   n_tot   <- sapply(n, sum)
+  seed <- seq_along(n_tot) 
   strata <- store[[4]]
   cv     <- store[[5]]
   trace  <- unlist(store[[6]])
@@ -65,6 +66,8 @@ for (f in files) {
     n_tot = unname(as.vector(n_tot)),
     time    = unname(as.vector(time)),
     ref_method = settings$ref_method, 
+    init_sol = store[[9]],
+    seed    = seed,
     run_id  = fname   # VERY useful
   )
   

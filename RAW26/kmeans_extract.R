@@ -61,6 +61,7 @@ for (f in files) {
     method  = "kmeans",
     dataset = settings$dataset,
     strata  = settings$strata,
+    strata_real = settings$strata,
     nstart  = settings$nstart,
     N       = settings$N,
     alloc   = unname(as.vector(alloc)),
