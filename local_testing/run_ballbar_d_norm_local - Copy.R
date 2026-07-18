@@ -14,20 +14,23 @@ source("function_sample_size.R")
 ## ---- testing
 method <- c("kmeans_") ## update with method wanting to test c("kmeans_", "med_ney", "mclust_")
 
-  ## norm
-  load("multivar_datasets/d_norm.RData")
-  d_norm <- as.data.frame(d_norm)
-  load(paste0("CV/", method, "d_norm_results_cv.RData"))
+## COMB1
+load("multivar_datasets/d_comb1.RData")
+d_comb1 <- as.data.frame(d_comb1)
+
+
+datasets <- c("d_comb1")
+dfs <- list(d_comb1)
+sample <- rep(500)
+num_strat <- rep(5)
+
+  #cv <- cv[cv$alloc == "neyman", ]
+  df_cv <- matrix(c(0.009765126, 0.004563422, 0.01257245, 0.01130321), nrow=1)
+  #row_sums <- rowSums(df_cv)
+  #min_row_index <- which.min(row_sums)
+  #df_cv <- as.matrix(df_cv, nrow=1)
   
-  cv <- cv[cv$alloc == "neyman", ]
-  df_cv <- cv[, 1:4]
-  row_sums <- rowSums(df_cv)
-  min_row_index <- which.min(row_sums)
-  df_cv <- as.matrix(df_cv[min_row_index, ])
-  
-  datasets <- c("d_norm")
-  dfs <- list(d_norm)
-  sample <- c(500)
+
   cv_list <- list(df_cv)
   
   dta = 1

@@ -10,7 +10,8 @@ calculate_sample_size <- function(df,   ## data frame with y variables
   dfg <- df %>%
     group_by(strata) %>%
     summarise(across(all_of(vars), list(mean = mean, sd = sd)),
-              N_h = n(), .groups = "drop")
+              N_h = n(), .groups = "drop") %>%
+    mutate(across(ends_with("_sd"), ~ if_else(N_h == 1, 0, .x)))
   
   N <- dfg$N_h 
   W <- dfg$N_h / sum(N) ## population proportion of stratum
