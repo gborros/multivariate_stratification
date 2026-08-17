@@ -1,136 +1,266 @@
-## Run MClust
-
 library(dplyr)
-library(haven)
 library(cluster)
+library(haven)
+library(doParallel)
+library(foreach)
+
 ############# source functions #############
-source("calculate_cv.R")
+
 source("function_calc_variance.R")
+source("calculate_cv_nofpc.R")
 source("function_sample_size.R")
 
-#------------------------ Section 1: Datasets ---------------------------------
 
-
+#------------------------ Load Data ---------------------------------#
 ## NIDS
 load("multivar_datasets/nids_w5.RData")
 nids <- df
 
+#------------------------ Variable combinations ---------------------#
+var_combos <- list(
+  c("w5_hhincome", "w5_expf"),
+  c("w5_hhincome", "w5_expf", "w5_expenditure"),
+  c("w5_hhincome", "w5_expf", "w5_expenditure", "w5_tot_ass")
+)
+
 datasets <- c("nids")
 dfs <- list(nids)
 sample <- c(1000)
-num_strat <- c(4) 
+num_strata <- c(4)
+#------------------------ Setup functions --------------------------#
 
-for (dta in 1:length(datasets)) {
-  ssize = sample[dta]
-  vars <- character()
-  sf <- dfs[[dta]]
-  num_strata <- num_strat[dta]
+convert_labelled <- function(df){
   
-  for (z in 1:ncol(sf)) {
+  df <- haven::zap_labels(df)
+  
+  df <- as.data.frame(lapply(df, function(x){
     
-    var <- paste0("X", z)
-    vars <- c(vars, var)
-    
-  }
-  
-  colnames(sf) <- vars
-  #------------------------ Section 2: Dataset set up --------------------------
-  
-  set_up <- function(df, sort_var) { ## set up function to ensure scaled and no na data
-    df <- as.data.frame(scale(na.omit(df)))
-    df <- df[order(df[[sort_var]]), ]
-    rownames(df) <- 1:nrow(df)
-    return(df)
-  }
-  
-  df <- set_up(df = sf, sort_var = "X1")
-  
-  set_up_ns <- function(df, sort_var) { ## set up function with no scaling
-    df <- as.data.frame(na.omit(df))
-    df <- df[order(df[[sort_var]]), ]
-    rownames(df) <- 1:nrow(df)
-    return(df)
-  }
-  
-  df_ns <- set_up_ns(df = sf, sort_var = "X1")
-  
-  
-  #------------------------ Section 3: Run Spec ----------------------------------
-  data <- df
-  store_n <- numeric()
-  store_cv <- numeric()
-  store_trace <- numeric()
-  store_det <- numeric()
-  store_varcov <- numeric()
-  store_pca <- numeric()
-  store_obj <- numeric()
-  store_strata <- list()
-  store_time <- numeric()
-  type <- c("euclidean")
-  
-  for (i in 1:length(type)) {
-    print(type[i])
-    for (iter in 1:40) {
-      cat("Simulation Number:", print(iter), "\n")
-      set.seed(iter)
-      
-      start.time <- Sys.time()
-      result <- pam(data, k=num_strata, metric=type[i], nstart=25)
-      end.time <- Sys.time()
-      time <- difftime(end.time, start.time, units="mins")
-      
-      df <- data.frame(data, result$clustering)
-      names(df) <- c(vars, "strata")
-      strata <- df$strata
-      df_ns$strata <- strata 
-      
-      n <- calculate_sample_size(df=df, strata=df$strata, vars=vars, method='neyman', ssize=ssize)
-      print(sum(n))
-      cv <- calculate_cv(df=df_ns, strata=df_ns$strata, vars=vars, n=n)
-      strata <- as.factor(df$strata)
-      
-      ########## Calculate other objectives for best solution #################
-      
-      trace <- calculate_variance(df=df,
-                                  strata=df$strata,
-                                  vars=vars,
-                                  n=n,
-                                  objective='trace')
-      
-      det <- calculate_variance(df=df,
-                                strata=df$strata,
-                                vars=vars,
-                                n=n,
-                                objective='determinant')
-      
-      varcov <- calculate_variance(df=df,
-                                   strata=df$strata,
-                                   vars=vars,
-                                   n=n,
-                                   objective='varcov')
-      
-      pca <- calculate_variance(df=df,
-                                strata=df$strata,
-                                vars=vars,
-                                n=n,
-                                objective='pca')
-      
-      store_n <- rbind(store_n, n)
-      store_cv <- rbind(store_cv, cv)
-      store_trace <- rbind(store_trace, trace)
-      store_det <- rbind(store_det, det)
-      store_varcov <- rbind(store_varcov, varcov)
-      store_pca <- rbind(store_pca, pca)
-      store_obj <- rbind(store_obj, type[i])
-      store_strata[[iter]] <- strata
-      store_time <- rbind(store_time, time)
+    if(is.factor(x)){
+      as.numeric(as.character(x))
+    } else {
+      as.numeric(x)
     }
-    store <- list(df_ns, df, store_n, store_strata, store_cv, store_trace, store_det, store_varcov, store_pca, store_obj, store_time)
     
-    filename = paste0("OUTPUT/med_ney_app", datasets[dta], "_results.Rdata")
-    
-    save(store, file = filename)
-    
-  }
+  }))
+  
+  return(df)
+}
+
+
+
+set_up <- function(df, sort_var){
+  
+  df <- convert_labelled(df)
+  
+  df <- as.data.frame(scale(na.omit(df)))
+  
+  df <- df[order(df[[sort_var]]),]
+  
+  rownames(df) <- NULL
+  
+  df
   
 }
+
+
+
+set_up_ns <- function(df, sort_var){
+  
+  df <- convert_labelled(df)
+  
+  df <- as.data.frame(na.omit(df))
+  
+  df <- df[order(df[[sort_var]]),]
+  
+  rownames(df) <- NULL
+  
+  df
+  
+}
+
+#------------------------ Parallel setup ---------------------------#
+
+cl <- makeCluster(40)
+
+registerDoParallel(cl)
+
+
+
+#------------------------ Run -------------------------------------#
+
+for(dta in seq_along(datasets)){
+  
+  
+  sf_full <- dfs[[dta]]
+  
+  
+  task_grid <- expand.grid(
+    combo_id = seq_along(var_combos),
+    iter = 1:40
+  )
+  
+  
+  results <- foreach(
+    t = 1:nrow(task_grid),
+    .packages = c("cluster","dplyr"),
+    .combine = "list",
+    .multicombine = TRUE,
+    .export = c(
+      "convert_labelled",
+      "set_up",
+      "set_up_ns",
+      "calculate_sample_size",
+      "calculate_cv",
+      "calculate_variance"
+    )
+  ) %dopar% {
+    
+    
+    combo_id <- task_grid$combo_id[t]
+    
+    iter <- task_grid$iter[t]
+    
+    
+    vars_orig <- var_combos[[combo_id]]
+    
+    num_vars <- length(vars_orig)
+    
+    
+    sf <- sf_full[,vars_orig]
+    
+    
+    vars <- paste0("X",1:ncol(sf))
+    
+    colnames(sf) <- vars
+    
+    
+    df <- set_up(sf,"X1")
+    
+    df_ns <- set_up_ns(sf,"X1")
+    
+    
+    set.seed(iter)
+    
+    
+    start <- Sys.time()
+    
+    
+    med <- tryCatch(
+      pam(
+        x=df,
+        k=num_strata,
+        metric="euclidean",
+        nstart=25
+      ),
+      error=function(e) NULL
+    )
+    
+    
+    time <- as.numeric(
+      difftime(Sys.time(),start,units="mins")
+    )
+    
+    
+    # Build per-(combo_id, iter) output filename - unique per task,
+
+    iter_file <- paste0(
+      "OUTPUT/med_ney_",
+      datasets[dta],
+      "_vars", num_vars,
+      "_combo", combo_id,
+      "_iter", iter,
+      "_results.RData"
+    )
+    
+    
+    if(is.null(med)){
+      
+      iter_result <- list(
+        dataset=datasets[dta],
+        method="med_ney",
+        combo_id=combo_id,
+        num_vars=num_vars,
+        iter=iter,
+        error="med_ney_failed"
+      )
+      
+      # Save immediately, even on failure - so a missing file on disk
+      # unambiguously means the worker died before getting here,
+      # not that it failed cleanly.
+      save(iter_result, file=iter_file)
+      
+      return(iter_result)
+      
+    }
+    
+    
+    strata <- med$clustering
+    
+    
+    df_clust <- data.frame(
+      df,
+      strata=strata
+    )
+    
+    df_ns$strata <- strata
+    
+    
+    n <- calculate_sample_size(
+      df=df_clust,
+      strata=strata,
+      vars=vars,
+      method="neyman",
+      ssize=sample
+    )
+    
+    
+    cv <- calculate_cv(
+      df=df_ns,
+      strata=strata,
+      vars=vars,
+      n=n
+    )
+    
+    
+    trace <- calculate_variance(df_clust,strata,vars,n,"trace")
+    
+    det <- calculate_variance(df_clust,strata,vars,n,"determinant")
+    
+    varcov <- calculate_variance(df_clust,strata,vars,n,"varcov")
+    
+    pca <- calculate_variance(df_clust,strata,vars,n,"pca")
+    
+    
+    iter_result <- list(
+      dataset=datasets[dta],
+      method="med_ney",
+      combo_id=combo_id,
+      num_vars=num_vars,
+      iter=iter,
+      n=list(n),
+      cv=list(cv),
+      trace=trace,
+      det=det,
+      varcov=varcov,
+      pca=pca,
+      time=time,
+      strata=list(strata)
+    )
+    
+    # Save this iteration's result immediately, from inside the worker.
+    # This is the key change: each (combo_id, iter) pair gets its own
+    # file, written as soon as it's computed - so if this worker is
+    # killed (e.g. SLURM OOM) before the foreach() call as a whole
+    # finishes, everything it already completed is still on disk.
+    save(iter_result, file=iter_file)
+    
+    iter_result
+    
+  }
+  
+  
+
+  }
+
+
+stopCluster(cl)

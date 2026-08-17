@@ -4,15 +4,13 @@ library(dplyr)
 library(haven)
 library(SamplingStrata)
 
-setwd("C:\Users\01459189\OneDrive\phd\multivariate_stratification\local_testing")
-source("calculate_cv.R")
+setwd("C:/Users/01459189/OneDrive/phd/multivariate_stratification")
+source("calculate_cv_nofpc.R")
 source("function_calc_variance.R")
 source("function_sample_size.R")
 
-
-
 ## ---- testing
-method <- c("kmeans_") ## update with method wanting to test c("kmeans_", "med_ney", "mclust_")
+method <- c("med_ney") ## update with method wanting to test c("kmeans_", "med_ney", "mclust_")
 
   ## norm
   load("multivar_datasets/d_norm.RData")
@@ -94,7 +92,7 @@ method <- c("kmeans_") ## update with method wanting to test c("kmeans_", "med_n
                                 error,
                                 domainvalue = c(1)))
     
-  iter=1 ## update with seed wanting to test
+  iter=4 ## update with seed wanting to test
     
 
   set.seed(iter)
@@ -172,31 +170,3 @@ method <- c("kmeans_") ## update with method wanting to test c("kmeans_", "med_n
         warmstart_error = if (!init_attempt$ok) init_attempt$error_msg else NA
       )
     
-    # ------------------------ Store results ------------------------
-    store_n_all                       <- lapply(results, `[[`, "n")
-    store_cv_all[[datasets[dta]]]     <- do.call(rbind, lapply(results, `[[`, "cv"))
-    store_trace_all[[datasets[dta]]]  <- do.call(rbind, lapply(results, `[[`, "trace"))
-    store_strata_all[[datasets[dta]]] <- lapply(results, `[[`, "strata")
-    store_time_all[[datasets[dta]]]   <- do.call(rbind, lapply(results, `[[`, "time"))
-    store_n_strata_all                <- sapply(results, `[[`, "n_strata_realized")
-    store_warmstart_ok                <- sapply(results, `[[`, "warmstart_ok")
-
-  # ------------------------ Save results ------------------------
-  store <- list(
-    df = df,
-    df_ws = df_ws,
-    store_n_all = store_n_all,
-    store_strata_all = store_strata_all,
-    store_cv_all = store_cv_all,
-    store_trace_all = store_trace_all,
-    store_time_all = store_time_all,
-    store_n_strata_all = store_n_strata_all,
-    store_warmstart_ok = store_warmstart_ok
-  )
-  
-  # dynamic output filename per method
-  filename <- paste0("OUTPUT/ballbar_", datasets[1], "_results_localtest_", method, ".Rdata")
-  save(store, file = filename)
-  
-  cat("Finished method:", method, "-> saved to", filename, "\n")
-

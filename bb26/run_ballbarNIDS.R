@@ -1,280 +1,283 @@
-## Run File
+## ============================================================
+## Ballin-Barcaroli GGA benchmark (optimStrata "continuous")
+## ============================================================
 
 library(dplyr)
 library(haven)
 library(doParallel)
+library(foreach)
 library(SamplingStrata)
-source("calculate_cv.R")
+
+source("calculate_cv_nofpc.R")
 source("function_calc_variance.R")
 source("function_sample_size.R")
 
-#ncores <- as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", 1))
+
 ncores <- 40
+
+methods <- c("kmeans", "med_ney", "mclust")
+
+n_iter <- 40
+
+dataset_specs <- list(
+  nids = list(
+    path        = "multivar_datasets/nids_w5.RData",
+    obj         = "df",
+    ssize       = 1000,
+    num_strata  = 4)
+  
+)
+
+# Variable combinations per dataset. 
+var_combos <- list(
+  nids = list(
+  c("w5_hhincome", "w5_expf"),
+  c("w5_hhincome", "w5_expf", "w5_expenditure"),
+  c("w5_hhincome", "w5_expf", "w5_expenditure", "w5_tot_ass")
+  )
+  
+)
+
+## ------------------------------------------------------------------
+## Load consolidated CV targets
+## ------------------------------------------------------------------
+
+load("cv_all_res.RData")   # provides `best_by_group`
+
+## ------------------------------------------------------------------
+## Data setup helpers (generalised from your two scripts)
+## ------------------------------------------------------------------
+
+convert_labelled <- function(df) {
+  df <- haven::zap_labels(df)
+  df <- as.data.frame(lapply(df, function(x) {
+    if (is.factor(x)) as.numeric(as.character(x)) else as.numeric(x)
+  }))
+  df
+}
+
+set_up <- function(df, sort_var) {
+  df <- as.data.frame(na.omit(df))
+  df <- df[order(df[[sort_var]]), ]
+  rownames(df) <- 1:nrow(df)
+  df
+}
+
+set_up_ws <- function(df, sort_var) {
+  df <- as.data.frame(scale(na.omit(df)))
+  df <- df[order(df[[sort_var]]), ]
+  rownames(df) <- 1:nrow(df)
+  df
+}
+
+## ------------------------------------------------------------------
+## Load all datasets up front into a single list, keyed by name.
+## ------------------------------------------------------------------
+
+dfs_all <- list()
+for (dsname in names(dataset_specs)) {
+  spec <- dataset_specs[[dsname]]
+  local_env <- new.env()
+  load(spec$path, envir = local_env)
+  raw <- local_env[[spec$obj]]
+  if (!is.null(spec$filter_fn)) {
+    raw <- spec$filter_fn(raw)
+  }
+  if (!is.null(spec$subset_cols)) {
+    raw <- raw[, spec$subset_cols]
+  }
+  dfs_all[[dsname]] <- convert_labelled(raw)
+}
+
+
+## ------------------------------------------------------------------
+## Error-vector lookup from best_by_group.
+## ------------------------------------------------------------------
+
+get_error_vector <- function(best_by_group, this_method, this_dataset,
+                             num_vars, this_num_strata, this_ssize) {
+  
+  row <- best_by_group %>%
+    filter(
+      method  == this_method,
+      dataset == this_dataset,
+      strata  == this_num_strata,
+      N       == this_ssize,
+      vars    == num_vars
+    )
+  
+  if (nrow(row) != 1) {
+    stop(sprintf(
+      "get_error_vector: expected exactly 1 matching row for method=%s dataset=%s strata=%s N=%s num_vars=%s, got %d",
+      this_method, this_dataset, this_num_strata, this_ssize, num_vars, nrow(row)
+    ))
+  }
+  
+  # Take exactly one cv column per variable, in order (cv_vec_1 ... cv_vec_k)
+  cv_cols <- paste0("cv_vec_", 1:num_vars)
+  as.numeric(row[1, cv_cols])
+}
+
+## ------------------------------------------------------------------
+## Build the task grid: method x dataset x combo_id x iter
+## ------------------------------------------------------------------
+
+task_list <- list()
+for (m in methods) {
+  for (dsname in names(dataset_specs)) {
+    combos <- var_combos[[dsname]]
+    if (is.null(combos)) next
+    for (combo_id in seq_along(combos)) {
+      for (iter in 1:n_iter) {
+        task_list[[length(task_list) + 1]] <- data.frame(
+          method   = m,
+          dataset  = dsname,
+          combo_id = combo_id,
+          iter     = iter,
+          stringsAsFactors = FALSE
+        )
+      }
+    }
+  }
+}
+task_grid <- do.call(rbind, task_list)
+
+cat("Total tasks:", nrow(task_grid), "\n")
+
+## ------------------------------------------------------------------
+## Parallel cluster - single cluster
+## ------------------------------------------------------------------
+
 cl <- makeCluster(ncores)
-#wd <- getwd()   # your current working directory
-#clusterExport(cl, "wd")
-#clusterEvalQ(cl, setwd(wd))
 clusterEvalQ(cl, {
   library(dplyr)
   library(haven)
   library(SamplingStrata)
-  source("calculate_cv.R")
+  source("calculate_cv_nofpc.R")
   source("function_calc_variance.R")
 })
 registerDoParallel(cl)
 
-
-## ECD Census
-# load("multivar_datasets/ecd_census_multivariate.RData")
-# ecd <- df
-# load("OUTPUT/GGA_ney_ecd_results.Rdata")
-# ecd_cv<- store[[5]]
-# ecd_cv <- ecd_cv[[1]]
-# row_sums <- rowSums(ecd_cv)
-# min_row_index <- which.min(row_sums)
-# ecd_cv <- t(as.matrix(ecd_cv[min_row_index, ]))
-
-# datasets <- c("ecd")
-# dfs <- list(ecd)
-# sample <- c(3000)
-# cv <- list(ecd_cv)
-
-
-# ## TB5
-# load("multivar_datasets/tb5.RData")
-# tb5 <- df[2:7]
-# load("OUTPUT/GGA_ney_tb5_results.Rdata")
-# tb5_cv<- store[[5]]
-# tb5_cv <- tb5_cv[[1]]
-# row_sums <- rowSums(tb5_cv)       # sum across each row
-# min_row_index <- which.min(row_sums)  # index of row with smallest sum
-# tb5_cv <- t(as.matrix(tb5_cv[min_row_index, ]))
-# 
-# 
-# datasets <- c("tb5")
-# dfs <- list(tb5)
-# sample <- c(500)
-# cv <- list(tb5_cv)
-
-
-# ## GHS
-# load("multivar_datasets/ghs_2024.RData")
-# df$hhinc_pc <- df$totmhinc/df$hholdsz
-# df <- df[df$fin_reqinc!=9999999,]
-# ghs <- df[,-4]
-# load("OUTPUT/GGA_ney_ghs_results.Rdata")
-# ghs_cv<- store[[5]]
-# ghs_cv <- ghs_cv[[1]]
-# row_sums <- rowSums(ghs_cv)       # sum across each row
-# min_row_index <- which.min(row_sums)  # index of row with smallest sum
-# ghs_cv <- t(as.matrix(ghs_cv[min_row_index, ]))
-# 
-# datasets <- c("ghs")
-# dfs <- list(ghs)
-# sample <- c(2000)
-# cv <- list(ghs_cv)
-
-## NIDS
-load("multivar_datasets/nids_w5.RData")
-nids <- df
-load("CV/kmeans_nids_results.Rdata")
-nids_cv<- store[[5]]
-row_sums <- rowSums(nids_cv)       # sum across each row
-min_row_index <- which.min(row_sums)  # index of row with smallest sum
-nids_cv <- t(as.matrix(nids_cv[min_row_index, ]))
-
-
-datasets <- c("nids")
-dfs <- list(nids)
-sample <- c(1000)
-cv <- list(nids_cv)
-
- 
-# ## SALSS
-# load("multivar_datasets/salss.RData")
-# salss <- df
-
-for (dta in 1:length(datasets)) {
-  ssize = sample[1]
-  vars <- character()
-  cfs <- character()
-  sf <- dfs[[dta]]
-  error <- as.matrix(cv[[dta]], nrow=1)
+results <- foreach(
+  t = 1:nrow(task_grid),
+  .packages = c("dplyr", "haven", "SamplingStrata"),
+  .export = c(
+    "dataset_specs", "var_combos", "dfs_all", "best_by_group",
+    "set_up", "set_up_ws", "get_error_vector",
+    "calculate_cv", "calculate_variance"
+  )
+) %dopar% {
   
-  for (z in 1:ncol(sf)) {
-    
-    var <- paste0("X", z)
-    vars <- c(vars, var)
-    cf <- paste0("CV", z)
-    cfs <- c(cfs, cf)
-  }
+  method   <- task_grid$method[t]
+  dsname   <- task_grid$dataset[t]
+  combo_id <- task_grid$combo_id[t]
+  iter     <- task_grid$iter[t]
   
+  spec       <- dataset_specs[[dsname]]
+  ssize      <- spec$ssize
+  num_strata <- spec$num_strata
+  vars_orig  <- var_combos[[dsname]][[combo_id]]
+  num_vars   <- length(vars_orig)
+  
+  iter_file <- paste0(
+    "OUTPUT/ballbar_", method, dsname,
+    "_vars", num_vars, "_combo", combo_id,
+    "_iter", iter, "_results.RData"
+  )
+  
+  sf <- dfs_all[[dsname]][, vars_orig, drop = FALSE]
+  vars <- paste0("X", seq_along(vars_orig))
   colnames(sf) <- vars
-  colnames(error) <- cfs
-  #------------------------ Section 2: Dataset set up --------------------------
   
-  set_up <- function(df, sort_var) { ## set up function to ensure scaled and no na data
-    df <- as.data.frame(na.omit(df))
-    df <- df[order(df[[sort_var]]), ]
-    rownames(df) <- 1:nrow(df)
-    return(df)
-  }
+  df    <- set_up(sf, "X1")
+  df_ws <- set_up_ws(sf, "X1")
   
-  df <- set_up(df = sf, sort_var = "X1")
+  err_lookup <- tryCatch(
+    get_error_vector(best_by_group, method, dsname, num_vars, num_strata, ssize),
+    error = function(e) e
+  )
   
-  set_up_ws <- function(df, sort_var) { ## set up function to ensure scaled and no na data
-    df <- as.data.frame(scale(na.omit(df)))
-    df <- df[order(df[[sort_var]]), ]
-    rownames(df) <- 1:nrow(df)
-    return(df)
-  }
-  
-  df_ws <- set_up_ws(df = sf, sort_var = "X1")
-  
-  num_strata <- 4
-  
-  #------------------------ Section 3: Run GGA ----------------------------------
-  # Initialize storage lists
-  store_n_all      <- list()
-  store_cv_all     <- list()
-  store_var_all    <- list()
-  store_trace_all  <- list()
-  store_det_all    <- list()
-  store_varcov_all <- list()
-  store_pca_all    <- list()
-  store_strata_all <- list()
-  
-  df <- as.data.frame(df)
-  error <- as.data.frame(error)
-  
-  df$id <- 1:nrow(df) ## adding identifier
-  df$dom <- 1 ## adding domain
-  
-  frame <- buildFrameDF(df=df, ## now taking full dataset
-                        id = "id", ## id variable
-                        X = vars,
-                        Y = vars, ## 
-                        domainvalue = "dom")
-  
-  
-  
-  ## specify error thresholds:
-  ndom <- length(unique(df$dom))
-  error <- as.data.frame(list(DOM=rep("DOM1",ndom),
-                              error,
-                              domainvalue=c(1) ))
-  
-  
-  # ------------------------ Parallelised runs ------------------------
-  results <- foreach(iter = 1:40, .packages = c("dplyr", "haven", "SamplingStrata")) %dopar% {
-    
-    set.seed(iter)
-    
-    ## kmeans
-    init_sol3 <- KmeansSolution2(frame=frame,
-                                 errors=error,
-                                 maxclusters = num_strata,
-                                 nstrata=num_strata)
-    
-    nstrata3 <- tapply(init_sol3$suggestions,
-                       init_sol3$domainvalue,
-                       FUN=function(x) length(unique(x)))
-    
-    initial_solution3 <- prepareSuggestion(init_sol3, frame, nstrata3)
-    
-    ## GGA
-    set.seed(iter)
-    if(nstrata3 != num_strata) {
-      solution <- optimStrata(method = "continuous",
-                              errors = error, 
-                              framesamp = frame,
-                              iter = 2000,
-                              pops = 50,
-                              nStrata = num_strata,
-                              mut_chance = 0.3)
-    } else {
-      solution <- optimStrata(method = "continuous",
-                              errors = error, 
-                              framesamp = frame,
-                              iter = 2000,
-                              pops = 50,
-                              nStrata = num_strata,
-                              mut_chance = 0.3,
-                              suggestions = initial_solution3)
-    }
-    
-    strataStructure <- summaryStrata(solution$framenew,
-                                     solution$aggr_strata,
-                                     progress = FALSE)
-    
-    n <- as.vector(strataStructure$Allocation)
-    df_sol <- solution$framenew
-    df_sol$strata <- df_sol$STRATO
-    
-    ## CV and other objectives
-    cv <- calculate_cv(df = df_sol, strata = df_sol$strata, vars = vars, n = n)
-    
-    trace <- calculate_variance(df = df_ws,
-                                strata = df_sol$strata,
-                                vars = vars,
-                                n = n,
-                                objective = 'trace')
-    
-    det <- calculate_variance(df = df_ws,
-                              strata = df_sol$strata,
-                              vars = vars,
-                              n = n,
-                              objective = 'determinant')
-    
-    varcov <- calculate_variance(df = df_ws,
-                                 strata = df_sol$strata,
-                                 vars = vars,
-                                 n = n,
-                                 objective = 'varcov')
-    
-    pca <- calculate_variance(df = df_ws,
-                              strata = df_sol$strata,
-                              vars = vars,
-                              n = n,
-                              objective = 'pca')
-    
-    # Return all results as a list
-    list(
-      n = n,
-      cv = cv,
-      trace = trace,
-      det = det,
-      varcov = varcov,
-      pca = pca,
-      objective = solution$objective,
-      strata = df_sol$strata
+  if (inherits(err_lookup, "error")) {
+    iter_result <- list(
+      method = method, dataset = dsname, combo_id = combo_id,
+      num_vars = num_vars, iter = iter,
+      error = paste("error_vector_lookup_failed:", conditionMessage(err_lookup))
     )
-  } # end foreach
+    save(iter_result, file = iter_file)
+    return(iter_result)
+  }
   
-  # ------------------------ Store results ------------------------
-  store_n_all[[datasets[dta]]]      <- do.call(rbind, lapply(results, `[[`, "n"))
-  store_cv_all[[datasets[dta]]]     <- do.call(rbind, lapply(results, `[[`, "cv"))
-  store_trace_all[[datasets[dta]]]  <- do.call(rbind, lapply(results, `[[`, "trace"))
-  store_det_all[[datasets[dta]]]    <- do.call(rbind, lapply(results, `[[`, "det"))
-  store_varcov_all[[datasets[dta]]] <- do.call(rbind, lapply(results, `[[`, "varcov"))
-  store_pca_all[[datasets[dta]]]    <- do.call(rbind, lapply(results, `[[`, "pca"))
-  store_strata_all[[datasets[dta]]] <- lapply(results, `[[`, "strata")
+  error_row <- as.data.frame(t(err_lookup))
+  cfs <- paste0("CV", seq_along(vars))
+  colnames(error_row) <- cfs
+  
+  df$id  <- 1:nrow(df)
+  df$dom <- 1
+  
+  frame <- buildFrameDF(df = df, id = "id", X = vars, Y = vars, domainvalue = "dom")
+  
+  error <- as.data.frame(list(
+    DOM = "DOM1",
+    error_row,
+    domainvalue = 1
+  ))
+  
+  set.seed(iter)
+  init_attempt <- tryCatch({
+    init_sol3 <- KmeansSolution2(
+      frame = frame, errors = error,
+      maxclusters = num_strata, nstrata = num_strata
+    )
+    nstrata3 <- tapply(
+      init_sol3$suggestions, init_sol3$domainvalue,
+      FUN = function(x) length(unique(x))
+    )
+    initial_solution3 <- prepareSuggestion(init_sol3, frame, nstrata3)
+    list(ok = TRUE, nstrata3 = nstrata3, initial_solution3 = initial_solution3)
+  }, error = function(e) {
+    list(ok = FALSE, error_msg = conditionMessage(e))
+  })
+  
+  set.seed(iter)
+  if (init_attempt$ok && init_attempt$nstrata3 == num_strata) {
+    solution <- optimStrata(
+      method = "continuous", errors = error, framesamp = frame,
+      iter = 2000, pops = 50, nStrata = num_strata,
+      mut_chance = 0.3, suggestions = init_attempt$initial_solution3
+    )
+  } else {
+    solution <- optimStrata(
+      method = "continuous", errors = error, framesamp = frame,
+      iter = 2000, pops = 50, nStrata = num_strata, mut_chance = 0.3
+    )
+  }
+  
+  strataStructure <- summaryStrata(solution$framenew, solution$aggr_strata, progress = FALSE)
+  n <- as.vector(strataStructure$Allocation)
+  n_strata_realized <- length(n)
+  
+  df_sol <- solution$framenew
+  df_sol$strata <- df_sol$STRATO
+  
+  cv_val <- calculate_cv(df = df_sol, strata = df_sol$strata, vars = vars, n = n)
+  trace  <- calculate_variance(df = df_ws, strata = df_sol$strata, vars = vars, n = n, objective = "trace")
+  det    <- calculate_variance(df = df_ws, strata = df_sol$strata, vars = vars, n = n, objective = "determinant")
+  varcov <- calculate_variance(df = df_ws, strata = df_sol$strata, vars = vars, n = n, objective = "varcov")
+  pca    <- calculate_variance(df = df_ws, strata = df_sol$strata, vars = vars, n = n, objective = "pca")
+  
+  iter_result <- list(
+    method = method, dataset = dsname, combo_id = combo_id, num_vars = num_vars,
+    iter = iter, n = n, cv = cv_val, trace = trace, det = det, varcov = varcov,
+    pca = pca, objective = solution$objective, strata = df_sol$strata,
+    n_strata_realized = n_strata_realized,
+    warmstart_ok = init_attempt$ok,
+    warmstart_error = if (!init_attempt$ok) init_attempt$error_msg else NA
+  )
+  
+  # Save immediately from inside the worker
+  save(iter_result, file = iter_file)
+  
+  iter_result
 }
 
 stopCluster(cl)
-
-# ------------------------ Save results ------------------------
-store <- list(
-  df = df,
-  df_ws = df_ws,
-  store_n_all = store_n_all,
-  store_strata_all = store_strata_all,
-  store_cv_all = store_cv_all,
-  store_trace_all = store_trace_all,
-  store_det_all = store_det_all,
-  store_varcov_all = store_varcov_all,
-  store_pca_all = store_pca_all
-)
-
-filename <- paste0("OUTPUT/ballbar_", datasets[dta], "_results.Rdata")
-save(store, file = filename)

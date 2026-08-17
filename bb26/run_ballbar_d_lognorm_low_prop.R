@@ -4,14 +4,16 @@ library(dplyr)
 library(haven)
 library(doParallel)
 library(SamplingStrata)
-source("calculate_cv.R")
+source("calculate_cv_nofpc.R")
 source("function_calc_variance.R")
 source("function_sample_size.R")
 
 ncores <- 40
 
 ## ---- methods to run, one after another ----
-methods <- c("kmeans_", "med_prop", "mclust_")
+#methods <- c("kmeans_", "med_prop", "mclust_")
+methods <- c("med_prop")
+
 
 for (method in methods) {
 

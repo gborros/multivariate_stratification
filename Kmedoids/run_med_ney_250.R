@@ -4,7 +4,7 @@ library(dplyr)
 library(haven)
 library(cluster)
 ############# source functions #############
-source("calculate_cv.R")
+source("calculate_cv_nofpc.R")
 source("function_calc_variance.R")
 source("function_sample_size.R")
 

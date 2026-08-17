@@ -26,7 +26,7 @@ calculate_variance <- function(df,   ## data frame with y variables
   if (objective == 'trace') {
   
   for (i in 1:k) {
-    Vk <- S[, i]^2 ## Variance for variable i
+    Vk <- S[, i]^2 ## Standard deviation for variable i
     
     for (h in 1:L) {
       fitness[h, i] <- (W[h]^2 * (1 - (n[h] / N[h])) * (Vk[h] / n[h])) ## Kozak (5)

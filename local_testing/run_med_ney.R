@@ -1,176 +1,111 @@
-## Run K-medoids
+## ============================================================
+## Local testing script: K-medoids stratification, single run
+## by: dataset, num_strata, sample_size, seed, metric
+## ============================================================
 
 library(dplyr)
 library(haven)
 library(cluster)
-############# source functions #############
-source("calculate_cv.R")
+
+setwd("C:/Users/01459189/OneDrive/phd/multivariate_stratification")
+source("calculate_cv_nofpc.R")
 source("function_calc_variance.R")
 source("function_sample_size.R")
 
-#------------------------ Section 1: Datasets ---------------------------------
+#------------------------ Section 1: Parameters --------------------------
 
+dataset_name    <- "d_norm"
+num_strata <- 5
+ssize <- 500
+seed       <- 1
+metric     <- "euclidean"   # "euclidean" or "manhattan"
 
-## NORM
-load("multivar_datasets/d_norm.RData")
-d_norm <- as.data.frame(d_norm)
+cat("Running local test with:\n")
+cat("  dataset     :", dataset_name, "\n")
+cat("  num_strata  :", num_strata, "\n")
+cat("  sample_size :", ssize, "\n")
+cat("  seed        :", seed, "\n")
+cat("  metric      :", metric, "\n\n")
 
-## NORM LOW
-load("multivar_datasets/d_norm_low.RData")
-d_norm_low <- as.data.frame(d_norm_low)
+#------------------------ Section 2: Load the single dataset -------------
 
-## LOGNORM
-load("multivar_datasets/d_lognorm.RData")
-d_lognorm <- as.data.frame(d_lognorm)
+data_path <- file.path("multivar_datasets", paste0(dataset_name, ".RData"))
+if (!file.exists(data_path)) {
+  stop("Could not find dataset file: ", data_path)
+}
+load(data_path)
+sf <- as.data.frame(get(dataset_name))
 
-## LOGNORM LOW
-load("multivar_datasets/d_lognorm_low.RData")
-d_lognorm_low <- as.data.frame(d_lognorm_low)
+vars <- paste0("X", seq_len(ncol(sf)))
+colnames(sf) <- vars
 
-## CHISQ
-load("multivar_datasets/d_chisq.RData")
-d_chisq <- as.data.frame(d_chisq)
+#------------------------ Section 3: Dataset set up -----------------------
 
-## COMB1
-load("multivar_datasets/d_comb1.RData")
-d_comb1 <- as.data.frame(d_comb1)
-
-## COMB2
-load("multivar_datasets/d_comb2.RData")
-d_comb2 <- as.data.frame(d_comb2)
-
-## COMB3
-load("multivar_datasets/d_comb3.RData")
-d_comb3 <- as.data.frame(d_comb3)
-
-## COMB4
-load("multivar_datasets/d_comb4.RData")
-d_comb4 <- as.data.frame(d_comb4)
-
-## COMB5
-load("multivar_datasets/d_comb5.RData")
-d_comb5 <- as.data.frame(d_comb5)
-
-datasets <- c("d_norm", "d_norm_low", "d_lognorm", "d_lognorm_low",
-              "d_chisq", "d_comb1", "d_comb2", "d_comb3", "d_comb4",
-              "d_comb5")
-dfs <- list(d_norm, d_norm_low, d_lognorm, d_lognorm_low, d_chisq,
-            d_comb1, d_comb2, d_comb3, d_comb4, d_comb5)
-sample <- rep(500,10)
-num_strat <- rep(5, 10)
-
-for (dta in 1:length(datasets)) {
-  ssize = sample[1]
-  vars <- character()
-  sf <- dfs[[dta]]
-  num_strata <- num_strat[dta]
-  
-  for (z in 1:ncol(sf)) {
-    
-    var <- paste0("X", z)
-    vars <- c(vars, var)
-    
-  }
-  
-  colnames(sf) <- vars
-#------------------------ Section 2: Dataset set up --------------------------
-
-set_up <- function(df, sort_var) { ## set up function to ensure scaled and no na data
+set_up <- function(df, sort_var) {
   df <- as.data.frame(scale(na.omit(df)))
   df <- df[order(df[[sort_var]]), ]
   rownames(df) <- 1:nrow(df)
   return(df)
 }
 
-df <- set_up(df = sf, sort_var = "X1")
-
-set_up_ns <- function(df, sort_var) { ## set up function with no scaling
+set_up_ns <- function(df, sort_var) {
   df <- as.data.frame(na.omit(df))
   df <- df[order(df[[sort_var]]), ]
   rownames(df) <- 1:nrow(df)
   return(df)
 }
 
+df    <- set_up(df = sf, sort_var = "X1")
 df_ns <- set_up_ns(df = sf, sort_var = "X1")
 
+#------------------------ Section 4: Single run ----------------------------
 
-#------------------------ Section 3: Run Spec ----------------------------------
 data <- df
-store_n <- numeric()
-store_cv <- numeric()
-store_trace <- numeric()
-store_det <- numeric()
-store_varcov <- numeric()
-store_pca <- numeric()
-store_obj <- numeric()
-store_strata <- list()
-store_time <- numeric()
-type <- c("manhattan", "euclidean")
 
-for (i in 1:length(type)) {
-  print(type[i])
-  for (iter in 1:40) {
-    cat("Simulation Number:", print(iter), "\n")
-    set.seed(iter)
-  
-  start.time <- Sys.time()
-  result <- pam(data, k=num_strata, metric=type[i], nstart=25)
-  end.time <- Sys.time()
-  time <- difftime(end.time, start.time, units="mins")
-  print("just finished pam")
-  df <- data.frame(data, result$clustering)
-  names(df) <- c(vars, "strata")
-  strata <- df$strata
-  df_ns$strata <- strata 
+set.seed(seed)
 
-  n <- calculate_sample_size(df=df, strata=df$strata, vars=vars, method='neyman', ssize=ssize)
-  print(sum(n))
-  cv <- calculate_cv(df=df_ns, strata=df_ns$strata, vars=vars, n=n)
-  strata <- as.factor(df$strata)
-  
-  ########## Calculate other objectives for best solution #################
-  
-  trace <- calculate_variance(df=df,
-                              strata=df$strata,
-                              vars=vars,
-                              n=n,
-                              objective='trace')
-  
-  det <- calculate_variance(df=df,
-                            strata=df$strata,
-                            vars=vars,
-                            n=n,
-                            objective='determinant')
-  
-  varcov <- calculate_variance(df=df,
-                               strata=df$strata,
-                               vars=vars,
-                               n=n,
-                               objective='varcov')
-  
-  pca <- calculate_variance(df=df,
-                            strata=df$strata,
-                            vars=vars,
-                            n=n,
-                            objective='pca')
-  
-  store_n <- rbind(store_n, n)
-  store_cv <- rbind(store_cv, cv)
-  store_trace <- rbind(store_trace, trace)
-  store_det <- rbind(store_det, det)
-  store_varcov <- rbind(store_varcov, varcov)
-  store_pca <- rbind(store_pca, pca)
-  store_obj <- rbind(store_obj, type[i])
-  store_strata[[iter]] <- strata
-  store_time <- rbind(store_time, time)
-}
-store <- list(df_ns, df, store_n, store_strata, store_cv, store_trace, store_det, store_varcov, store_pca, store_obj, store_time)
+start.time <- Sys.time()
+result <- pam(data, k = num_strata, metric = metric, nstart = 25)
+end.time <- Sys.time()
+run_time <- difftime(end.time, start.time, units = "mins")
 
-filename = paste0("OUTPUT/med_ney", datasets[dta], "_results.Rdata")
+cat("pam() finished in", round(as.numeric(run_time), 3), "minutes\n\n")
 
-save(store, file = filename)
+df_clustered <- data.frame(data, result$clustering)
+names(df_clustered) <- c(vars, "strata")
 
-}
+df_ns$strata <- df_clustered$strata
 
-}
+n <- calculate_sample_size(
+  df = df_clustered,
+  strata = df_clustered$strata,
+  vars = vars,
+  method = "neyman",
+  ssize = ssize
+)
+cat("Total allocated sample size:", sum(n), "\n")
+
+cv <- calculate_cv(
+  df = df_ns,
+  strata = df_ns$strata,
+  vars = vars,
+  n = n
+)
+
+strata_factor <- as.factor(df_clustered$strata)
+
+trace <- calculate_variance(df = df_clustered, strata = df_clustered$strata, vars = vars, n = n, objective = "trace")
+det   <- calculate_variance(df = df_clustered, strata = df_clustered$strata, vars = vars, n = n, objective = "determinant")
+varcov <- calculate_variance(df = df_clustered, strata = df_clustered$strata, vars = vars, n = n, objective = "varcov")
+pca   <- calculate_variance(df = df_clustered, strata = df_clustered$strata, vars = vars, n = n, objective = "pca")
+
+#------------------------ Section 5: Console summary -----------------------
+
+cat("\n---- Summary ----\n")
+cat("n per stratum:\n"); print(n)
+cat("\ncv:\n"); print(cv)
+cat("\ntrace:", trace, "\n")
+cat("determinant:", det, "\n")
+cat("varcov:", varcov, "\n")
+cat("pca:", pca, "\n")
 
