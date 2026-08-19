@@ -6,6 +6,8 @@ This repository contains work on multivariate stratified sampling of continuous 
 
 - **`Local_testing/`** — Scripts for local testing of specific seeds and methods.
   
+-  **`multivar_datasets/`** — Simulated and applied datasets used for the analysis.
+    
 - **`Kmedoids/`** — Run files for k-medoids clustering, with both Neyman-adapted and proportional allocation.
 
 - **`bb26/`** — Benchmark method run files (SamplingStrata) for dataset × strata × sample size combinations.
